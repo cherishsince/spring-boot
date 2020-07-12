@@ -10,5 +10,10 @@ repositories {
 }
 
 dependencies {
+    implementation(project(":spring-boot-project:spring-boot-starters:spring-boot-starter-web")) {
+        exclude group: "org.hibernate.validator"
+    }
+    implementation(project(":spring-boot-project:spring-boot-starters:spring-boot-starter-actuator"))
+
     testCompile group: 'junit', name: 'junit', version: '4.12'
 }

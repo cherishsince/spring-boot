@@ -267,15 +267,22 @@ public class SpringApplication {
 	public SpringApplication(ResourceLoader resourceLoader, Class<?>... primarySources) {
 		this.resourceLoader = resourceLoader;
 		Assert.notNull(primarySources, "PrimarySources must not be null");
+		// 传入的 xxxApplication.class 其实是可以多个的
 		this.primarySources = new LinkedHashSet<>(Arrays.asList(primarySources));
+		// 获取当前 web 容器类型，是web容器，还是嵌入士的web容器，或者不是web容器
 		this.webApplicationType = WebApplicationType.deduceFromClasspath();
+		// 设置 ApplicationContextInitializer 初始化接口
 		setInitializers((Collection) getSpringFactoriesInstances(ApplicationContextInitializer.class));
+		// 设置 ApplicationListener 监听器
 		setListeners((Collection) getSpringFactoriesInstances(ApplicationListener.class));
+		// 获取 main 方法的 class，获取失败返回 null
 		this.mainApplicationClass = deduceMainApplicationClass();
 	}
 
 	private Class<?> deduceMainApplicationClass() {
 		try {
+			// 通过 RuntimeException 获取调用栈，然后通过调用栈，找到 main 方法
+			// 然后返回，这个类的 className（这个操作骚）
 			StackTraceElement[] stackTrace = new RuntimeException().getStackTrace();
 			for (StackTraceElement stackTraceElement : stackTrace) {
 				if ("main".equals(stackTraceElement.getMethodName())) {
@@ -296,40 +303,70 @@ public class SpringApplication {
 	 * @return a running {@link ApplicationContext}
 	 */
 	public ConfigurableApplicationContext run(String... args) {
+		// stop 监听器
 		StopWatch stopWatch = new StopWatch();
+		// 启动监听器
 		stopWatch.start();
+		// spring 相关
 		ConfigurableApplicationContext context = null;
 		Collection<SpringBootExceptionReporter> exceptionReporters = new ArrayList<>();
+		// 配置 java System 属性(java.awt.headless)
 		configureHeadlessProperty();
+		// 获取 监听器管理
 		SpringApplicationRunListeners listeners = getRunListeners(args);
+		// 监听器管理，通知容器准备启动(这里是 starting)
 		listeners.starting();
 		try {
+			//
+			// tips：这里都是一些配置
+
+			// 将 args 转换成 ApplicationArguments，为运行时 ApplicationContext 提供参数
 			ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
+			// 创建 Environment 环境变量
 			ConfigurableEnvironment environment = prepareEnvironment(listeners, applicationArguments);
+			// todo 是不是 BeanDefinition?
 			configureIgnoreBeanInfo(environment);
+			// 打印 banner
 			Banner printedBanner = printBanner(environment);
+
+			//
+			// tips：开始创建容器和刷新容器
+
+			// 创建 ApplicationContext，指定 applicationContextClass 创建，没有采用 webApplicationType 创建对应的容器
 			context = createApplicationContext();
+			//
 			exceptionReporters = getSpringFactoriesInstances(SpringBootExceptionReporter.class,
 					new Class<?>[] { ConfigurableApplicationContext.class }, context);
+			//
 			prepareContext(context, environment, listeners, applicationArguments, printedBanner);
+			// 刷新容器
+			// 刷新容器
 			refreshContext(context);
+			// 钩子方法，现在是空的实现
 			afterRefresh(context, applicationArguments);
+			// 停止监听？
 			stopWatch.stop();
+			// TODO 启动logo info，这里 stopWatch 好像同于，监听启动了什么？在这里吧日志打出来？
 			if (this.logStartupInfo) {
 				new StartupInfoLogger(this.mainApplicationClass).logStarted(getApplicationLog(), stopWatch);
 			}
+			// 监听器管理，通知容器已启动
 			listeners.started(context);
+			//
 			callRunners(context, applicationArguments);
 		}
 		catch (Throwable ex) {
+			// 处理允许失败
 			handleRunFailure(context, ex, exceptionReporters, listeners);
 			throw new IllegalStateException(ex);
 		}
 
 		try {
+			// 监听器管理，通知容器已运行
 			listeners.running(context);
 		}
 		catch (Throwable ex) {
+			// 处理允许失败
 			handleRunFailure(context, ex, exceptionReporters, null);
 			throw new IllegalStateException(ex);
 		}
@@ -406,14 +443,23 @@ public class SpringApplication {
 	}
 
 	private void configureHeadlessProperty() {
+		// 配置无头属性(翻译过来，有点不好理解)
+
+		// 就是这是 java.awt.headless 值，如果 java.awt.headless 有设置，就获取
+		// 没有设置就 java.awt.headless 设置为 true
 		System.setProperty(SYSTEM_PROPERTY_JAVA_AWT_HEADLESS,
 				System.getProperty(SYSTEM_PROPERTY_JAVA_AWT_HEADLESS, Boolean.toString(this.headless)));
 	}
 
 	private SpringApplicationRunListeners getRunListeners(String[] args) {
+		// SpringApplicationRunListeners 是 spring boot 的
+		// 提供 spring boot 启动，允许，停止，失败 的一些生命周期的 listener
 		Class<?>[] types = new Class<?>[] { SpringApplication.class, String[].class };
-		return new SpringApplicationRunListeners(logger,
-				getSpringFactoriesInstances(SpringApplicationRunListener.class, types, this, args));
+		// 获取监听器
+		Collection<? extends SpringApplicationRunListener> listeners
+				= getSpringFactoriesInstances(SpringApplicationRunListener.class, types, this, args);
+		// 初始化 SpringApplicationRunListeners 管理器
+		return new SpringApplicationRunListeners(logger, listeners);
 	}
 
 	private <T> Collection<T> getSpringFactoriesInstances(Class<T> type) {
@@ -421,10 +467,12 @@ public class SpringApplication {
 	}
 
 	private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] parameterTypes, Object... args) {
+		// thread 的 classLoader
 		ClassLoader classLoader = getClassLoader();
 		// Use names and ensure unique to protect against duplicates
 		Set<String> names = new LinkedHashSet<>(SpringFactoriesLoader.loadFactoryNames(type, classLoader));
 		List<T> instances = createSpringFactoriesInstances(type, parameterTypes, classLoader, args, names);
+		// 监听器 @Order @Primary 注解排序
 		AnnotationAwareOrderComparator.sort(instances);
 		return instances;
 	}
@@ -566,7 +614,9 @@ public class SpringApplication {
 	 * @see #setApplicationContextClass(Class)
 	 */
 	protected ConfigurableApplicationContext createApplicationContext() {
+		// 如果指定了 applicationContextClass 就按指定的来
 		Class<?> contextClass = this.applicationContextClass;
+		// 根据 webApplicationType 创建对于的 ApplicationContext
 		if (contextClass == null) {
 			try {
 				switch (this.webApplicationType) {
@@ -585,6 +635,7 @@ public class SpringApplication {
 						"Unable create a default ApplicationContext, please specify an ApplicationContextClass", ex);
 			}
 		}
+		// 通过 BeanUtils.instantiateClass 创建容器
 		return (ConfigurableApplicationContext) BeanUtils.instantiateClass(contextClass);
 	}
 
